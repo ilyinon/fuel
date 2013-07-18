@@ -143,58 +143,15 @@ class openstack::controller_ha (
 
     # haproxy
     include haproxy::params
-    $global_options   = $haproxy::params::global_options
-    $defaults_options = $haproxy::params::defaults_options
-
-#    Class['cluster::haproxy'] -> Anchor['haproxy_done']
-#    file { '/etc/rsyslog.d/haproxy.conf':
-#        ensure => present,
-#        content => 'local0.* -/var/log/haproxy.log'
-#    } -> Anchor['haproxy_done']
-#
-#    concat { '/etc/haproxy/haproxy.cfg':
-#      owner   => '0',
-#      group   => '0',
-#      mode    => '0644',
-#    } -> Anchor['haproxy_done']
-    
-
-    # Dirty hack, due Puppet can't send notify between stages
-    exec { 'restart_haproxy':
-      command     => 'crm resource restart clone_p_haproxy',
-      path        => '/usr/bin:/usr/sbin:/bin:/sbin',
-      logoutput   => true,
-      refreshonly => true,
-      tries       => 3,
-      try_sleep   => 1,
-      #returns    => [0, 1, ''],
-    }
-    Exec['restart_haproxy'] -> Anchor['haproxy_done']
-    Concat['/etc/haproxy/haproxy.cfg'] ~> Exec['restart_haproxy']
-
-    # Simple Header
-#    concat::fragment { '00-header':
-#      target  => '/etc/haproxy/haproxy.cfg',
-#      order   => '01',
-#      content => "# This file managed by Puppet\n",
-#    } -> Haproxy_service<| |>
-
-    # Template uses $global_options, $defaults_options
-#    concat::fragment { 'haproxy-base':
-#      target  => '/etc/haproxy/haproxy.cfg',
-#      order   => '10',
-#      content => template('haproxy/haproxy-base.cfg.erb'),
-#    } -> Haproxy_service<| |>
-
 
     Haproxy_service {
       balancers => $controller_internal_addresses
     }
 
-#    file { '/etc/rsyslog.d/haproxy.conf':
-#      ensure => present,
-#      content => 'local0.* -/var/log/haproxy.log'
-#    }
+    file { '/etc/rsyslog.d/haproxy.conf':
+      ensure => present,
+      content => 'local0.* -/var/log/haproxy.log'
+    }
 
     if $queue_provider == 'rabbitmq' {
       #Class['keepalived'] -> Class ['nova::rabbitmq']
@@ -236,12 +193,6 @@ class openstack::controller_ha (
     if $glance_backend == 'swift' {
       haproxy_service { 'swift': order => 96, port => 8080, virtual_ips => [$public_virtual_ip,$internal_virtual_ip], balancers => $swift_proxies }
     }
-
-    Haproxy_service<| |> ~> Exec['restart_haproxy']
-    Haproxy_service<| |> -> Anchor['haproxy_done']
-    Service<| title == 'haproxy' |> -> Anchor['haproxy_done']
-
-    anchor {'haproxy_done': }
 
 
     exec { 'up-public-interface':
@@ -401,7 +352,6 @@ class openstack::controller_ha (
       keystone_admin_tenant   => $keystone_admin_tenant,
       glance_db_password      => $glance_db_password,
       glance_user_password    => $glance_user_password,
-      glance_api_servers      => $glance_api_servers,
       nova_db_password        => $nova_db_password,
       nova_user_password      => $nova_user_password,
       queue_provider          => $queue_provider,
@@ -414,7 +364,6 @@ class openstack::controller_ha (
       rabbit_ha_virtual_ip    => $internal_virtual_ip,
       qpid_password           => $rabbit_hash[password],
       qpid_user               => $rabbit_user,
-      qpid_cluster            => false,
       qpid_nodes              => $controller_hostnames,
       qpid_port               => '5672',
       qpid_node_ip_address    => $rabbit_node_ip_address,
@@ -428,6 +377,7 @@ class openstack::controller_ha (
       quantum                 => $quantum,
       quantum_user_password   => $quantum_user_password,
       quantum_db_password     => $quantum_db_password,
+     #quantum_l3_enable       => $primary_controller,
       quantum_gre_bind_addr   => $quantum_gre_bind_addr,
       quantum_external_ipinfo => $quantum_external_ipinfo,
       quantum_network_node    => $quantum_network_node,

@@ -21,8 +21,11 @@
 #   Network mask.
 #
 # [*gateway*]
-#   You can specify default gateway IP address, or 'save' for save default route 
-#   if it lies through this interface now.
+#   You can specify default gateway. 
+#
+# [*save_default_gateway*]
+#   If current network configuration contains a gateway parameter
+#   this option will try to save it.
 #
 # [*dns_nameservers*]
 #   Dns nameservers to use
@@ -32,11 +35,6 @@
 #
 # [*dns_search*]
 #   DNS domain to search for
-#
-# [*save_default_gateway*]
-#   If current network configuration contains a gateway parameter
-#   this option will try to save it.
-#   DEPRECATED!!! use gateway=>'save'
 #
 define l23network::l3::create_br_iface (
     $interface,
@@ -68,8 +66,8 @@ define l23network::l3::create_br_iface (
     #
     if $gateway {
       $gateway_ip_address_for_newly_created_interface = $gateway
-    } elsif ($save_default_gateway or $gateway == 'save') and $::l3_default_route_interface == $interface {
-      $gateway_ip_address_for_newly_created_interface = 'save'
+    } elsif $save_default_gateway and $::l3_default_route_interface == $interface {
+      $gateway_ip_address_for_newly_created_interface = $::l3_default_route
     } else {
       $gateway_ip_address_for_newly_created_interface = undef
     }

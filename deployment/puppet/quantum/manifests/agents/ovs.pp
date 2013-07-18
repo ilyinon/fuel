@@ -35,6 +35,7 @@ class quantum::agents::ovs (
     external_ids  => "bridge-id=${integration_bridge}",
     ensure        => present,
     skip_existing => true,
+  # require      => Service['quantum-plugin-ovs-service'],
   }
 
   if $enable_tunneling {
@@ -42,12 +43,15 @@ class quantum::agents::ovs (
       external_ids  => "bridge-id=${tunnel_bridge}",
       ensure        => present,
       skip_existing => true,
+    # require      => Service['quantum-plugin-ovs-service'],
     }
     quantum_plugin_ovs { 'OVS/local_ip': value => $local_ip; }
   } else {
     quantum::plugins::ovs::bridge { $bridge_mappings: # Do not quote!!! may be array!
+      #require      => Service['quantum-plugin-ovs-service'],
     }
     quantum::plugins::ovs::port { $bridge_uplinks: # Do not quote!!! may be array!
+      #require      => Service['quantum-plugin-ovs-service'],
     }
   }
 
@@ -57,11 +61,11 @@ class quantum::agents::ovs (
     $service_ensure = 'stopped'
   }
 
-  Quantum_config <| |> ~> Service['quantum-ovs-agent']
-  Quantum_plugin_ovs <| |> ~> Service['quantum-ovs-agent']
-  Service <| title == 'quantum-server' |> -> Service['quantum-ovs-agent']
+  Quantum_config <| |> ~> Service['quantum-plugin-ovs-service']
+  Quantum_plugin_ovs <| |> ~> Service['quantum-plugin-ovs-service']
+  Service <| title == 'quantum-server' |> -> Service['quantum-plugin-ovs-service']
 
-  L23network::L2::Bridge <| |> -> Service['quantum-ovs-agent']
+  L23network::L2::Bridge <| |> -> Service['quantum-plugin-ovs-service']
 
   if $service_provider == 'pacemaker' {
     Quantum_config <| |> -> Cs_shadow['ovs']
@@ -72,13 +76,13 @@ class quantum::agents::ovs (
 
     cs_commit { 'ovs': cib => 'ovs' }
 
-    Cs_commit['ovs'] -> Service['quantum-ovs-agent']
+    Cs_commit['ovs'] -> Service['quantum-plugin-ovs-service']
 
     ::corosync::cleanup { "p_${::quantum::params::ovs_agent_service}": }
 
     Cs_commit['ovs'] -> ::Corosync::Cleanup["p_${::quantum::params::ovs_agent_service}"]
     Cs_commit['ovs'] ~> ::Corosync::Cleanup["p_${::quantum::params::ovs_agent_service}"]
-    ::Corosync::Cleanup["p_${::quantum::params::ovs_agent_service}"] -> Service['quantum-ovs-agent']
+    ::Corosync::Cleanup["p_${::quantum::params::ovs_agent_service}"] -> Service['quantum-plugin-ovs-service']
 
     cs_resource { "p_${::quantum::params::ovs_agent_service}":
       ensure          => present,
@@ -122,12 +126,12 @@ class quantum::agents::ovs (
       }
       default: { fail("The $::osfamily operating system is not supported.") }
     }
-    service { 'quantum-ovs-agent_stopped':
+    service { 'quantum-ovs-agent-service_stopped':
       name       => $::quantum::params::ovs_agent_service,
       enable     => false,
       hasstatus  => false,
     }
-    exec { 'quantum-ovs-agent_stopped':
+    exec { 'quantum-ovs-agent-service_stopped':
       #todo: rewrite as script, that returns zero or wait, when it can return zero
       name   => "bash -c \"service ${::quantum::params::ovs_agent_service} stop || ( kill `pgrep -f quantum-openvswitch-agent` || : )\"",
       onlyif => "service ${::quantum::params::ovs_agent_service} status | grep \'${started_status}\'",
@@ -135,11 +139,11 @@ class quantum::agents::ovs (
       returns => [0,""]
     }
     Package[$ovs_agent_package] ->
-      Service['quantum-ovs-agent_stopped'] ->
-        Exec['quantum-ovs-agent_stopped'] ->
+      Service['quantum-ovs-agent-service_stopped'] ->
+        Exec['quantum-ovs-agent-service_stopped'] ->
           Cs_resource["p_${::quantum::params::ovs_agent_service}"]
 
-    service { 'quantum-ovs-agent':
+    service { 'quantum-plugin-ovs-service':
       name       => "p_${::quantum::params::ovs_agent_service}",
       enable     => $enabled,
       ensure     => $service_ensure,
@@ -149,7 +153,7 @@ class quantum::agents::ovs (
     }
 
   } else {
-    service { 'quantum-ovs-agent':
+    service { 'quantum-plugin-ovs-service':
       name       => $::quantum::params::ovs_agent_service,
       enable     => $enabled,
       ensure     => $service_ensure,
@@ -158,19 +162,16 @@ class quantum::agents::ovs (
       provider   => $::quantum::params::service_provider,
     }
   }
-  Class[quantum::waistline] -> Service['quantum-ovs-agent']
-  Package[$ovs_agent_package] -> Service['quantum-ovs-agent']
+  Class[quantum::waistline] -> Service[quantum-plugin-ovs-service]
+  Package[$ovs_agent_package] -> Service[quantum-plugin-ovs-service]
 
-  service { 'quantum-ovs-cleanup':
+  service { 'quantum-ovs-agent-cleanup':
     name       => 'quantum-ovs-cleanup',
     enable     => $enabled,
-    ensure     => false,  # !!! Warning !!!
-    hasstatus  => false,  # !!! 'false' is not mistake
-    hasrestart => false,  # !!! cleanup is simple script runnung once at OS boot
+    ensure     => false,
+    hasstatus  => false,
+    hasrestart => false,
   }
-
-  # This order is conditioned package dependencies
-  # In real life, the starting order of the inverse
-  Service['quantum-ovs-agent'] -> Service['quantum-ovs-cleanup']
+  Service['quantum-plugin-ovs-service'] -> Service['quantum-ovs-agent-cleanup']
 
 }

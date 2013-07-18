@@ -26,18 +26,6 @@ $internal_virtual_ip = '10.0.0.253'
 # interface resides
 $public_virtual_ip   = '10.0.204.253'
 
-$vips = { # Do not convert to ARRAY, It's can't work in 2.7
-  public_old => {
-    nic    => $public_br,
-    ip     => $public_virtual_ip,
-  },
-  management_old => {
-    nic    => $internal_br,
-    ip     => $internal_virtual_ip,
-  },
-}
-
-
 $nodes_harr = [
   {
     'name' => 'master',
@@ -156,7 +144,6 @@ $swift_proxies = nodes_to_hash($swift_proxy_nodes,'name','internal_address')
 $ha_provider = 'pacemaker'
 $use_unicast_corosync = true
 
-$nagios = true
 # Set nagios master fqdn
 $nagios_master        = 'nagios-server.localdomain'
 ## proj_name  name of environment nagios configuration
@@ -265,16 +252,11 @@ if $quantum {
   $internal_int = $internal_interface
 }
 
-#Stages configuration
-stage {'first': } ->
-stage {'openstack-custom-repo': } ->
-stage {'netconfig': } ->
-stage {'corosync_setup': } ->
-stage {'cluster_head': } ->
-stage {'openstack-firewall': } -> Stage['main']
-
-
 #Network configuration
+stage {'netconfig':
+      before  => Stage['main'],
+}
+
 class {'l23network': use_ovs=>$quantum, stage=> 'netconfig'}
 class node_netconfig (
   $mgmt_ipaddr,
@@ -338,13 +320,13 @@ $cinder                  = true
 # 'XXX.XXX.XXX.XXX'    -> specify particular host(s) by IP address
 # 'all'                -> compute, controller, and storage nodes will run cinder (excluding swif
 
-$cinder_nodes          = ['controller']
+$cinder_nodes          = [ 'controller' ]
 
 #Set it to true if your want cinder-volume been installed to the host
 #Otherwise it will install api and scheduler services
 $manage_volumes          = true
 
-# Setup network address, which Cinder uses to export iSCSI targets.
+# Setup network interface, which Cinder uses to export iSCSI targets.
 $cinder_iscsi_bind_addr = $internal_address
 
 # Below you can add physical volumes to cinder. Please replace values with the actual names of devices.
@@ -513,16 +495,17 @@ Exec { logoutput => true }
 tag("${::deployment_id}::${::environment}")
 
 
+stage { 'openstack-custom-repo': before => Stage['netconfig'] }
 class { 'openstack::mirantis_repos':
   stage => 'openstack-custom-repo',
   type=>$mirror_type,
   enable_test_repo=>$enable_test_repo,
   repo_proxy=>$repo_proxy,
 }
-
-class { '::openstack::firewall':
-  stage => 'openstack-firewall'
-}
+ stage {'openstack-firewall': before => Stage['main'], require => Stage['netconfig'] } 
+ class { '::openstack::firewall':
+      stage => 'openstack-firewall'
+ }
 
 if !defined(Class['selinux']) and ($::osfamily == 'RedHat') {
   class { 'selinux':
@@ -545,14 +528,6 @@ sysctl::value { 'net.ipv4.conf.all.rp_filter': value => '0' }
 #  'custom': require fileserver static mount point [ssl_certs] and hostname based certificate existence
 $horizon_use_ssl = false
 
-# Class for calling corosync::virtual_ip in the specifis stage
-$vip_keys = keys($vips)
-class virtual_ips () {
-  cluster::virtual_ips { $vip_keys:
-    vips => $vips,
-  }
-}
-
 
 class ha_controller (
   $quantum_network_node = $quantum_netnode_on_cnt
@@ -564,32 +539,16 @@ class ha_controller (
     public_netmask => $::public_netmask,
     stage          => 'netconfig',
   }
-  ###
-  # cluster init
-  class { '::cluster': stage => 'corosync_setup' } ->
-  class { 'virtual_ips':
-    stage => 'corosync_setup'
-  }
-  include ::haproxy::params
-  class { 'cluster::haproxy':
-    global_options   => merge($::haproxy::params::global_options, {'log' => "/dev/log local0"}),
-    defaults_options => merge($::haproxy::params::defaults_options, {'mode' => 'http'}),
-    stage => 'cluster_head',
-  }
-  #
-  ###
 
-  if $nagios {
-    class {'nagios':
-      proj_name       => $proj_name,
-      services        => [
-        'host-alive','nova-novncproxy','keystone', 'nova-scheduler',
-        'nova-consoleauth', 'nova-cert', 'haproxy', 'nova-api', 'glance-api',
-        'glance-registry','horizon', 'rabbitmq', 'mysql',
-      ],
-      whitelist       => ['127.0.0.1', $nagios_master],
-      hostgroup       => 'controller',
-    }
+  class {'nagios':
+    proj_name       => $proj_name,
+    services        => [
+      'host-alive','nova-novncproxy','keystone', 'nova-scheduler',
+      'nova-consoleauth', 'nova-cert', 'haproxy', 'nova-api', 'glance-api',
+      'glance-registry','horizon', 'rabbitmq', 'mysql',
+    ],
+    whitelist       => ['127.0.0.1', $nagios_master],
+    hostgroup       => 'controller',
   }
 
   class { 'openstack::controller_ha':
@@ -662,7 +621,7 @@ class ha_controller (
 node /fuel-controller-[\d+]/ {
   include stdlib
   class { 'operatingsystem::checksupported':
-      stage => 'first'
+      stage => 'setup'
   }
 
   class { ha_controller: }
@@ -673,7 +632,7 @@ node /fuel-controller-[\d+]/ {
 node /fuel-compute-[\d+]/ {
   include stdlib
   class { 'operatingsystem::checksupported':
-      stage => 'first'
+      stage => 'setup'
   }
 
   class {'::node_netconfig':
@@ -684,15 +643,13 @@ node /fuel-compute-[\d+]/ {
     stage          => 'netconfig',
   }
 
-  if $nagios {
-    class {'nagios':
-      proj_name       => $proj_name,
-      services        => [
-        'host-alive', 'nova-compute','nova-network','libvirt'
-      ],
-      whitelist       => ['127.0.0.1', $nagios_master],
-      hostgroup       => 'compute',
-    }
+  class {'nagios':
+    proj_name       => $proj_name,
+    services        => [
+      'host-alive', 'nova-compute','nova-network','libvirt'
+    ],
+    whitelist       => ['127.0.0.1', $nagios_master],
+    hostgroup       => 'compute',
   }
   
   class { 'openstack::compute':
@@ -750,15 +707,13 @@ node /fuel-swift-[\d+]/ {
     stage          => 'netconfig',
   }
 
-  if $nagios {
-    class {'nagios':
-      proj_name       => $proj_name,
-      services        => [
-        'host-alive', 'swift-account', 'swift-container', 'swift-object',
-      ],
-      whitelist       => ['127.0.0.1', $nagios_master],
-      hostgroup       => 'swift-storage',
-    }
+  class {'nagios':
+    proj_name       => $proj_name,
+    services        => [
+      'host-alive', 'swift-account', 'swift-container', 'swift-object',
+    ],
+    whitelist       => ['127.0.0.1', $nagios_master],
+    hostgroup       => 'swift-storage',
   }
   
   $swift_zone = $node[0]['swift_zone']
@@ -798,13 +753,11 @@ node /fuel-swiftproxy-[\d+]/ {
     stage          => 'netconfig',
   }
 
-  if $nagios {
-    class {'nagios':
-      proj_name       => $proj_name,
-      services        => ['host-alive', 'swift-proxy'],
-      whitelist       => ['127.0.0.1', $nagios_master],
-      hostgroup       => 'swift-proxy',
-    }
+  class {'nagios':
+    proj_name       => $proj_name,
+    services        => ['host-alive', 'swift-proxy'],
+    whitelist       => ['127.0.0.1', $nagios_master],
+    hostgroup       => 'swift-proxy',
   }
 
   if $primary_proxy {
@@ -827,7 +780,7 @@ node /fuel-swiftproxy-[\d+]/ {
 node /fuel-quantum/ {
   include stdlib
   class { 'operatingsystem::checksupported':
-      stage => 'first'
+      stage => 'setup'
   }
 
   class {'::node_netconfig':

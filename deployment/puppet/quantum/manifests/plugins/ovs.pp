@@ -20,7 +20,7 @@ class quantum::plugins::ovs (
   Package['quantum-plugin-ovs'] -> Quantum_plugin_ovs<||>
 
   Quantum_plugin_ovs<||> ~> Service<| title == 'quantum-server' |>
-  Quantum_plugin_ovs<||> ~> Service<| title == 'quantum-ovs-agent' |>
+  Quantum_plugin_ovs<||> ~> Service<| title == 'quantum-plugin-ovs-service' |>
 
   Package['quantum-plugin-ovs'] -> Service<| title == 'quantum-server' |>
   File['/etc/quantum/plugin.ini'] -> Service<| title == 'quantum-server' |>

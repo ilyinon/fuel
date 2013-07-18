@@ -230,6 +230,7 @@ class openstack::controller (
       galera_nodes           => $galera_nodes,
       custom_setup_class     => $custom_mysql_setup_class,
       mysql_skip_name_resolve => $mysql_skip_name_resolve,
+      use_syslog             => $use_syslog,
     }
   }
   ####### KEYSTONE ###########
@@ -343,7 +344,7 @@ class openstack::controller (
     # Qpid
     qpid_password           => $qpid_password,
     qpid_user               => $qpid_user,
-    qpid_cluster            => $qpid_cluster,
+    #qpid_cluster            => $qpid_cluster,
     qpid_nodes              => $qpid_nodes,
     qpid_port               => $qpid_port,
     qpid_node_ip_address    => $qpid_node_ip_address,
@@ -377,6 +378,7 @@ class openstack::controller (
       physical_volume      => $nv_physical_volume,
       manage_volumes       => $manage_volumes,
       enabled              => true,
+      glance_api_servers   => "${service_endpoint}:9292",
       auth_host            => $service_endpoint,
       bind_host            => $api_bind_address,
       iscsi_bind_host      => $cinder_iscsi_bind_addr,
@@ -384,23 +386,23 @@ class openstack::controller (
       use_syslog           => $use_syslog,
       cinder_rate_limits   => $cinder_rate_limits,
       rabbit_ha_virtual_ip => $rabbit_ha_virtual_ip,
-        }
-      } 
     }
-  else { 
-    if $manage_volumes {
-      # Set up nova-volume
-      class { 'nova::volume':
-        ensure_package => $::openstack_version['nova'],
-        enabled        => true,
-      }
-      class { 'nova::volume::iscsi':
-        iscsi_ip_address => $api_bind_address,
-        physical_volume  => $nv_physical_volume,
-      }
     }
   }
-# Set up nova-volume
+  else {
+  if $manage_volumes {
+
+    class { 'nova::volume':
+      ensure_package => $::openstack_version['nova'],
+      enabled        => true,
+      }
+    class { 'nova::volume::iscsi':
+      iscsi_ip_address => $api_bind_address,
+      physical_volume  => $nv_physical_volume,
+      }
+  }
+  # Set up nova-volume
+  }
 
   if !defined(Class['memcached']){
     class { 'memcached':
@@ -420,6 +422,8 @@ class openstack::controller (
     horizon_app_links => $horizon_app_links,
     keystone_host     => $service_endpoint,
     use_ssl           => $horizon_use_ssl,
+    verbose           => $verbose,
+    use_syslog        => $use_syslog,
   }
 
 }

@@ -49,6 +49,7 @@ class mysql::config(
   $root_group        = $mysql::params::root_group,
   $custom_setup_class = undef,
   $server_id         = $mysql::params::server_id,
+  $use_syslog        = false,
 ) inherits mysql::params {
 
   if $custom_setup_class != "pacemaker_mysql" {
